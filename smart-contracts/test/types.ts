@@ -19,8 +19,8 @@ export interface DomainParam {
 }
 
 export enum Sources {
-  Aggregator0x = '0x',
-  Aggregotor1inch = '1inch',
+  Aggregator0x = "0x",
+  Aggregotor1inch = "1inch",
 }
 
 export interface QuoteParams {

@@ -1,32 +1,39 @@
 /* eslint-disable import/no-extraneous-dependencies */
-import { promises as fs } from 'fs';
-import { signTypedData_v4, TypedDataUtils } from 'eth-sig-util';
-import { addHexPrefix, toBuffer } from 'ethereumjs-util';
-import { DomainParam, MessageParam, Quote } from '../types';
-import { Address, Hex, parseSignature, toHex, zeroAddress } from 'viem';
+import { promises as fs } from "fs";
+import { signTypedData_v4, TypedDataUtils } from "eth-sig-util";
+import { addHexPrefix, toBuffer } from "ethereumjs-util";
+import { DomainParam, MessageParam, Quote } from "../types";
+import { Address, Hex, hexToNumber, parseSignature, toHex, zeroAddress } from "viem";
 
-import hre from 'hardhat';
+import hre from "hardhat";
+
+function bigIntReplacer(key: string, value: any): any {
+  if (typeof value === "bigint") {
+    return value.toString() + 'n';
+  }
+  return value;
+}
 
 const debug = false;
 const showGasUsage = false;
-const MAINNET_ADDRESS_1INCH = '0x1111111254fb6c44bac0bed2854e76f90643097d';
-const MAINNET_ADDRESS_0X = '0xdef1c0ded9bec7f1a1670819833240f027b25eff';
-const WETH_ADDRESS = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2';
-const DAI_ADDRESS = '0x6b175474e89094c44da98b954eedeac495271d0f';
-const ETH_ADDRESS = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
-const ENS_ADDRESS = '0xC18360217D8F7Ab5e7c516566761Ea12Ce7F9D72';
-const RAD_ADDRESS = '0x31c8eacbffdd875c74b94b077895bd78cf1e64a3';
-const USDC_ADDRESS = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
-const INCH_ADDRESS = '0x111111111117dc0aa78b770fa6a738034120c302';
-const WNXM_ADDRESS = '0x0d438f3b5175bebc262bf23753c1e53d03432bde';
-const VSP_ADDRESS = '0x1b40183efb4dd766f11bda7a7c3ad8982e998421';
-const LQTY_ADDRESS = '0x6dea81c8171d0ba574754ef6f8b412f2ed88c54d';
-const TORN_ADDRESS = '0x77777feddddffc19ff86db637967013e6c6a116c';
-const BAL_ADDRESS = '0xba100000625a3754423978a60c9317c58a424e3d';
-const OPIUM_ADDRESS = '0x888888888889c00c67689029d7856aac1065ec11';
-const MIST_ADDRESS = '0x88acdd2a6425c3faae4bc9650fd7e27e0bebb7ab';
-const TRIBE_ADDRESS = '0xc7283b66eb1eb5fb86327f08e1b5816b0720212b';
-const FEI_ADDRESS = '0x956f47f50a910163d8bf957cf5846d573e7f87ca';
+const MAINNET_ADDRESS_1INCH = "0x1111111254fb6c44bac0bed2854e76f90643097d";
+const MAINNET_ADDRESS_0X = "0xdef1c0ded9bec7f1a1670819833240f027b25eff";
+const WETH_ADDRESS = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
+const DAI_ADDRESS = "0x6b175474e89094c44da98b954eedeac495271d0f";
+const ETH_ADDRESS = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
+const ENS_ADDRESS = "0xC18360217D8F7Ab5e7c516566761Ea12Ce7F9D72";
+const RAD_ADDRESS = "0x31c8eacbffdd875c74b94b077895bd78cf1e64a3";
+const USDC_ADDRESS = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
+const INCH_ADDRESS = "0x111111111117dc0aa78b770fa6a738034120c302";
+const WNXM_ADDRESS = "0x0d438f3b5175bebc262bf23753c1e53d03432bde";
+const VSP_ADDRESS = "0x1b40183efb4dd766f11bda7a7c3ad8982e998421";
+const LQTY_ADDRESS = "0x6dea81c8171d0ba574754ef6f8b412f2ed88c54d";
+const TORN_ADDRESS = "0x77777feddddffc19ff86db637967013e6c6a116c";
+const BAL_ADDRESS = "0xba100000625a3754423978a60c9317c58a424e3d";
+const OPIUM_ADDRESS = "0x888888888889c00c67689029d7856aac1065ec11";
+const MIST_ADDRESS = "0x88acdd2a6425c3faae4bc9650fd7e27e0bebb7ab";
+const TRIBE_ADDRESS = "0xc7283b66eb1eb5fb86327f08e1b5816b0720212b";
+const FEI_ADDRESS = "0x956f47f50a910163d8bf957cf5846d573e7f87ca";
 
 const Logger = {
   info(...args: any[]) {
@@ -43,29 +50,39 @@ const getVaultBalanceForToken = async (
   tokenAddress: Hex,
   vaultAddress: Hex,
 ) => {
-  const tokenContract = await hre.viem.getContractAt('IERC20', tokenAddress);
+  const tokenContract = await hre.viem.getContractAt("IERC20", tokenAddress);
   return tokenContract.read.balanceOf([vaultAddress]);
 };
 
 const init = async () => {
-  const wethContract = await hre.viem.getContractAt('IWETH', WETH_ADDRESS);
-  const daiContract = await hre.viem.getContractAt('IDAI', DAI_ADDRESS);
+  const wethContract = await hre.viem.getContractAt("IWETH", WETH_ADDRESS);
+  const daiContract = await hre.viem.getContractAt("IDAI", DAI_ADDRESS);
 
-  const signer = (await hre.viem.getWalletClients())[0]
-  Logger.log('User address', signer.account.address);
+  const signer = (await hre.viem.getWalletClients())[0];
+  Logger.log("User address", signer.account.address);
 
-  const rainbowRouterInstance = await hre.viem.deployContract("RainbowRouter");
-  Logger.log('Contract address', rainbowRouterInstance.address);
+  const rainbowRouterInstance = await hre.viem.deployContract("RainbowRouter", [], {
+    maxFeePerGas: 62722250707n
+  });
+  Logger.log("Contract address", rainbowRouterInstance.address);
 
-  await rainbowRouterInstance.write.updateSwapTargets([MAINNET_ADDRESS_1INCH, true]);
-  await rainbowRouterInstance.write.updateSwapTargets([MAINNET_ADDRESS_0X, true]);
+  await rainbowRouterInstance.write.updateSwapTargets([
+    MAINNET_ADDRESS_1INCH,
+    true,
+  ]);
+  await rainbowRouterInstance.write.updateSwapTargets([
+    MAINNET_ADDRESS_0X,
+    true,
+  ]);
 
   await rainbowRouterInstance.write.updateValidSigner([zeroAddress, true]);
 
   const publicClient = await hre.viem.getPublicClient();
 
-  const getEthVaultBalance = async () => publicClient.getBalance({address: rainbowRouterInstance.address});
-  const getSignerBalance = async () => publicClient.getBalance({address: signer.account.address});
+  const getEthVaultBalance = async () =>
+    publicClient.getBalance({ address: rainbowRouterInstance.address });
+  const getSignerBalance = async () =>
+    publicClient.getBalance({ address: signer.account.address });
 
   return {
     getSignerBalance,
@@ -74,51 +91,52 @@ const init = async () => {
     rainbowRouterInstance,
     signer,
     wethContract,
-    publicClient
+    publicClient,
   };
 };
 
 const EIP712_DOMAIN_TYPE = [
-  { name: 'name', type: 'string' },
-  { name: 'version', type: 'string' },
-  { name: 'chainId', type: 'uint256' },
-  { name: 'verifyingContract', type: 'address' },
+  { name: "name", type: "string" },
+  { name: "version", type: "string" },
+  { name: "chainId", type: "uint256" },
+  { name: "verifyingContract", type: "address" },
 ];
 
 const getDomainSeparator = async (
   name: any,
   version: string,
   chainId: any,
-  verifyingContract: any
+  verifyingContract: any,
 ) => {
   return (
-    '0x' +
+    "0x" +
     TypedDataUtils.hashStruct(
-      'EIP712Domain',
+      "EIP712Domain",
       { chainId, name, verifyingContract, version },
-      { EIP712Domain: EIP712_DOMAIN_TYPE }
-    ).toString('hex')
+      { EIP712Domain: EIP712_DOMAIN_TYPE },
+    ).toString("hex")
   );
 };
 
 const getPermitVersion = async (
-  token: { version: () => any; DOMAIN_SEPARATOR: () => any; address: string },
+  tokenAddress: Address,
   name: any,
   chainId: any,
-  verifyingContract: any
+  verifyingContract: any,
 ) => {
+  const token = await hre.viem.getContractAt("IERC2612", tokenAddress);
   try {
-    const version = await token.version();
+    const version = await token.read.version();
     return version;
   } catch (e) {
-    const version = '1';
+    const version = "1";
     try {
-      const domainSeparator = await token.DOMAIN_SEPARATOR();
+      const domainSeparator = await token.read.DOMAIN_SEPARATOR();
       const domainSeparatorValidation = await getDomainSeparator(
         name,
         version,
         chainId,
-        verifyingContract
+        verifyingContract,
       );
 
       if (domainSeparator === domainSeparatorValidation) {
@@ -130,7 +148,7 @@ const getPermitVersion = async (
           .map((t) => t.toLowerCase())
           .indexOf(token.address.toLowerCase()) !== -1
       ) {
-        return '1';
+        return "1";
       }
       return null;
     }
@@ -139,41 +157,45 @@ const getPermitVersion = async (
 };
 
 const getNonces = async (token: Address, owner: any) => {
-  const isDaiStylePermit =
-    token.toLowerCase() === DAI_ADDRESS.toLowerCase();
-  if(isDaiStylePermit) {
-  const tokenContract = await hre.viem.getContractAt(
-    'IDAI', token)
-    const nonce = await tokenContract.read.nonces(owner);
+  const isDaiStylePermit = token.toLowerCase() === DAI_ADDRESS.toLowerCase();
+  try {
+  if (isDaiStylePermit) {
+    const tokenContract = await hre.viem.getContractAt("IDAI", token);
+    const nonce = await tokenContract.read.nonces([owner]);
     return nonce;
   } else {
     const tokenContract = await hre.viem.getContractAt(
-      'IERC2612Extension', token)
-    const nonce = await tokenContract.read._nonces(owner);
+      "IERC2612Extension",
+      token,
+    );
+    const nonce = await tokenContract.read._nonces([owner]);
     return nonce;
+  }
+  } catch (e) {
+    return 0
   }
 };
 
 const EIP712_DOMAIN_TYPE_NO_VERSION = [
-  { name: 'name', type: 'string' },
-  { name: 'chainId', type: 'uint256' },
-  { name: 'verifyingContract', type: 'address' },
+  { name: "name", type: "string" },
+  { name: "chainId", type: "uint256" },
+  { name: "verifyingContract", type: "address" },
 ];
 
 const EIP2612_TYPE = [
-  { name: 'owner', type: 'address' },
-  { name: 'spender', type: 'address' },
-  { name: 'value', type: 'uint256' },
-  { name: 'nonce', type: 'uint256' },
-  { name: 'deadline', type: 'uint256' },
+  { name: "owner", type: "address" },
+  { name: "spender", type: "address" },
+  { name: "value", type: "uint256" },
+  { name: "nonce", type: "uint256" },
+  { name: "deadline", type: "uint256" },
 ];
 
 const PERMIT_ALLOWED_TYPE = [
-  { name: 'holder', type: 'address' },
-  { name: 'spender', type: 'address' },
-  { name: 'nonce', type: 'uint256' },
-  { name: 'expiry', type: 'uint256' },
-  { name: 'allowed', type: 'bool' },
+  { name: "holder", type: "address" },
+  { name: "spender", type: "address" },
+  { name: "nonce", type: "uint256" },
+  { name: "expiry", type: "uint256" },
+  { name: "allowed", type: "bool" },
 ];
 
 async function signPermit(
@@ -182,12 +204,11 @@ async function signPermit(
   spender: Address,
   value: bigint,
   deadline: bigint,
-  chainId: number
+  chainId: number,
 ) {
-  const tokenContract = await hre.viem.getContractAt('IERC20Metadata', token)
+  const tokenContract = await hre.viem.getContractAt("IERC20Metadata", token);
 
-  const isDaiStylePermit =
-    token.toLowerCase() === DAI_ADDRESS.toLowerCase();
+  const isDaiStylePermit = token.toLowerCase() === DAI_ADDRESS.toLowerCase();
 
   const name = await tokenContract.read.name();
   const [nonce, version] = await Promise.all([
@@ -205,7 +226,7 @@ async function signPermit(
     message.allowed = true;
     message.expiry = Number(deadline.toString());
   } else {
-    message.value = toHex(value)
+    message.value = toHex(value);
     message.deadline = Number(deadline.toString());
     message.owner = owner;
   }
@@ -228,29 +249,30 @@ async function signPermit(
   const data = {
     domain,
     message,
-    primaryType: 'Permit',
+    primaryType: "Permit",
     types,
   };
 
   const privateKeyBuffer = toBuffer(
     addHexPrefix(
-      '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'
-    )
+      "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+    ),
   );
 
   const signature = signTypedData_v4(privateKeyBuffer, {
     data: data as any,
   }) as Hex;
 
-  const { v, r, s } = parseSignature(signature);
+  const { r, s } = parseSignature(signature);
+  const v = hexToNumber(`0x${signature.slice(130)}`)
   return {
     deadline,
     isDaiStylePermit,
     nonce,
     r,
     s,
-    v,
-    value: message.value || toHex(0n),
+    v: v,
+    value: value,
   };
 }
 
@@ -261,7 +283,7 @@ async function getQuoteFromFile(
   inputAsset: string,
   outputAsset: string,
   amount: string,
-  feePercentageBasisPoints: string
+  feePercentageBasisPoints: string,
 ): Promise<Quote> {
   const fileName = `${dir}/${source}-${tradeType}-${inputAsset}-${outputAsset}-${amount}-${feePercentageBasisPoints}.json`;
 
@@ -296,4 +318,5 @@ export {
   WNXM_ADDRESS,
   MAINNET_ADDRESS_1INCH,
   MAINNET_ADDRESS_0X,
+  bigIntReplacer,
 };
