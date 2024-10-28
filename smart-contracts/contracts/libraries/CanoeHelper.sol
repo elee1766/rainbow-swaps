@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: GPL-3.0
-pragma solidity =0.8.11;
+pragma solidity =0.8.27;
 
 
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
@@ -29,14 +29,14 @@ library CanoeHelper {
         bytes32 dataHash,
         Warrant memory warrant
     ) internal view {
-        require(warrant.validBefore <= block.timestamp, "CANOE: EXPIRED");
-        require(warrant.validAfter >= block.timestamp, "CANOE: NOT_YET");
-        require(warrant.validAfter <= warrant.validBefore, "CANOE: INVALID TIMESTAMPS");
-
         // if the verifyingSigner is 0, it means that the warrant system is disabled, and we will function like the rainbow router
         if(warrant.verifyingSigner == address(0)) {
             return;
         }
+
+        require(warrant.validBefore <= block.timestamp, "CANOE: EXPIRED");
+        require(warrant.validAfter >= block.timestamp, "CANOE: NOT_YET");
+        require(warrant.validAfter <= warrant.validBefore, "CANOE: INVALID TIMESTAMPS");
 
         bytes32 dataToVerify = keccak256(
             abi.encode(

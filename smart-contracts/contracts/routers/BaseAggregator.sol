@@ -1,9 +1,10 @@
 //SPDX-License-Identifier: GPL-3.0
-pragma solidity =0.8.11;
+pragma solidity =0.8.27;
 
-import "solmate/src/utils/SafeTransferLib.sol";
-import "solmate/src/tokens/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "../libraries/PermitHelper.sol";
+import "../libraries/SafeTransferLib.sol";
 import "../libraries/CanoeHelper.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
@@ -67,7 +68,7 @@ contract BaseAggregator {
         CanoeHelper.verifyWarrant(keccak256(abi.encode(buyTokenAddress, target, keccak256(swapCallData), feeAmount)), warrant);
 
         // 1 - Get the initial balances
-        uint256 initialTokenBalance = ERC20(buyTokenAddress).balanceOf(
+        uint256 initialTokenBalance = IERC20(buyTokenAddress).balanceOf(
             address(this)
         );
         uint256 initialEthAmount = address(this).balance - msg.value;
@@ -89,17 +90,17 @@ contract BaseAggregator {
 
         // 3 - Make sure we received the tokens
         {
-            uint256 finalTokenBalance = ERC20(buyTokenAddress).balanceOf(
+            uint256 finalTokenBalance = IERC20(buyTokenAddress).balanceOf(
                 address(this)
             );
             require(initialTokenBalance < finalTokenBalance, "NO_TOKENS");
         }
 
         // 4 - Send the received tokens back to the user
-        SafeTransferLib.safeTransfer(
-            ERC20(buyTokenAddress),
+        SafeERC20.safeTransfer(
+            IERC20(buyTokenAddress),
             msg.sender,
-            ERC20(buyTokenAddress).balanceOf(address(this)) -
+            IERC20(buyTokenAddress).balanceOf(address(this)) -
                 initialTokenBalance
         );
 
@@ -266,16 +267,16 @@ contract BaseAggregator {
         // 2 - Move the tokens to this contract
         // NOTE: This implicitly assumes that the the necessary approvals have been granted
         // from msg.sender to the BaseAggregator
-        SafeTransferLib.safeTransferFrom(
-            ERC20(sellTokenAddress),
+        SafeERC20.safeTransferFrom(
+            IERC20(sellTokenAddress),
             msg.sender,
             address(this),
             sellAmount
         );
 
         // 3 - Approve the aggregator's contract to swap the tokens
-        SafeTransferLib.safeApprove(
-            ERC20(sellTokenAddress),
+        SafeERC20.safeIncreaseAllowance(
+            IERC20(sellTokenAddress),
             target,
             sellAmount
         );
@@ -295,7 +296,7 @@ contract BaseAggregator {
         }
 
         // 5 - Check that the tokens were fully spent during the swap
-        uint256 allowance = ERC20(sellTokenAddress).allowance(
+        uint256 allowance = IERC20(sellTokenAddress).allowance(
             address(this),
             target
         );
@@ -341,23 +342,23 @@ contract BaseAggregator {
         )), warrant);
 
         // 1 - Get the initial output token balance
-        uint256 initialOutputTokenAmount = ERC20(buyTokenAddress).balanceOf(
+        uint256 initialOutputTokenAmount = IERC20(buyTokenAddress).balanceOf(
             address(this)
         );
 
         // 2 - Move the tokens to this contract (which includes our fees)
         // NOTE: This implicitly assumes that the the necessary approvals have been granted
         // from msg.sender to the BaseAggregator
-        SafeTransferLib.safeTransferFrom(
-            ERC20(sellTokenAddress),
+        SafeERC20.safeTransferFrom(
+            IERC20(sellTokenAddress),
             msg.sender,
             address(this),
             sellAmount
         );
 
         // 3 - Approve the aggregator's contract to swap the tokens if needed
-        SafeTransferLib.safeApprove(
-            ERC20(sellTokenAddress),
+        SafeERC20.safeIncreaseAllowance(
+            IERC20(sellTokenAddress),
             target,
             sellAmount - feeAmount
         );
@@ -377,21 +378,21 @@ contract BaseAggregator {
         }
 
         // 5 - Check that the tokens were fully spent during the swap
-        uint256 allowance = ERC20(sellTokenAddress).allowance(
+        uint256 allowance = IERC20(sellTokenAddress).allowance(
             address(this),
             target
         );
         require(allowance == 0, "ALLOWANCE_NOT_ZERO");
 
         // 6 - Make sure we received the tokens
-        uint256 finalOutputTokenAmount = ERC20(buyTokenAddress).balanceOf(
+        uint256 finalOutputTokenAmount = IERC20(buyTokenAddress).balanceOf(
             address(this)
         );
         require(initialOutputTokenAmount < finalOutputTokenAmount, "NO_TOKENS");
 
         // 7 - Send tokens to the user
-        SafeTransferLib.safeTransfer(
-            ERC20(buyTokenAddress),
+        SafeERC20.safeTransfer(
+            IERC20(buyTokenAddress),
             msg.sender,
             finalOutputTokenAmount - initialOutputTokenAmount
         );

@@ -1,23 +1,20 @@
-// eslint-disable-next-line import/no-extraneous-dependencies
-import { BigNumberish } from '@ethersproject/bignumber';
-
-export type EthereumAddress = string;
+import type { Address, Hex } from "viem";
 
 export interface MessageParam {
   nonce: number;
-  spender: EthereumAddress;
-  holder?: EthereumAddress;
+  spender: Address;
+  holder?: Address;
   allowed?: boolean;
   expiry?: number;
   value?: string;
   deadline?: number;
-  owner?: EthereumAddress;
+  owner?: Address;
 }
 
 export interface DomainParam {
   chainId: number;
   name: string;
-  verifyingContract: EthereumAddress;
+  verifyingContract: Address;
   version?: string;
 }
 
@@ -29,13 +26,13 @@ export enum Sources {
 export interface QuoteParams {
   source?: Sources;
   chainId?: number;
-  fromAddress?: EthereumAddress;
-  inputAsset: EthereumAddress;
-  outputAsset: EthereumAddress;
-  inputAmount?: BigNumberish;
-  outputAmount?: BigNumberish;
-  destReceiver?: EthereumAddress;
-  feePercentageBasisPoints?: BigNumberish;
+  fromAddress?: Address;
+  inputAsset: Address;
+  outputAsset: Address;
+  inputAmount?: bigint;
+  outputAmount?: bigint;
+  destReceiver?: Address;
+  feePercentageBasisPoints?: bigint;
   slippage?: number;
 }
 
@@ -46,20 +43,20 @@ export interface ProtocolShare {
 
 export interface Quote {
   source?: Sources;
-  from: EthereumAddress;
-  to?: EthereumAddress;
-  data?: string;
-  value?: BigNumberish;
-  allowanceTarget?: EthereumAddress;
-  sellAmount: BigNumberish;
-  sellAmountDisplay: BigNumberish;
-  sellAmountMinusFees: BigNumberish;
-  sellTokenAddress: EthereumAddress;
-  buyTokenAddress: EthereumAddress;
-  buyAmount: BigNumberish;
-  buyAmountDisplay: BigNumberish;
-  fee: BigNumberish;
-  feeInEth: BigNumberish;
+  from: Address;
+  to?: Address;
+  data?: Hex;
+  value?: bigint;
+  allowanceTarget?: Address;
+  sellAmount: bigint;
+  sellAmountDisplay: bigint;
+  sellAmountMinusFees: bigint;
+  sellTokenAddress: Address;
+  buyTokenAddress: Address;
+  buyAmount: bigint;
+  buyAmountDisplay: bigint;
+  fee: bigint;
+  feeInEth: bigint;
   feePercentageBasisPoints: number;
   protocols?: ProtocolShare[];
   inputTokenDecimals?: number;
@@ -70,12 +67,12 @@ export interface TransactionOptions {
   gasLimit?: string | number;
   gasPrice?: string;
   nonce?: number;
-  value?: number | BigNumberish;
-  from?: EthereumAddress;
+  value?: number | bigint;
+  from?: Address;
 }
 
 export interface QuoteExecutionDetails {
   method: any;
-  methodArgs: (string | number | BigNumberish)[];
+  methodArgs: (string | number | bigint)[];
   params: TransactionOptions;
 }

@@ -14,10 +14,9 @@
 
 import path from 'path';
 // eslint-disable-next-line import/no-extraneous-dependencies
-import { BigNumberish } from '@ethersproject/bignumber';
 import { expect } from 'chai';
-import { ethers, network } from 'hardhat';
-import { EthereumAddress, Sources } from '../types';
+import { network } from 'hardhat';
+import { Sources } from '../types';
 import {
   DAI_ADDRESS,
   ETH_ADDRESS,
@@ -28,6 +27,8 @@ import {
   showGasUsage,
   WETH_ADDRESS,
 } from '../utils';
+import { Address, formatEther, formatUnits, parseEther, zeroAddress } from 'viem';
+import hre from 'hardhat';
 
 const SELL_AMOUNT = '0.1';
 const TESTDATA_DIR = path.resolve(__dirname, 'testdata/input');
@@ -36,7 +37,7 @@ describe('RainbowRouter Aggregators', function () {
   let swapTokenToToken: any,
     swapETHtoToken: any,
     swapTokenToETH: any,
-    currentVaultAddress: EthereumAddress;
+    currentVaultAddress: Address;
 
   before(async () => {
     await network.provider.request({
@@ -51,15 +52,15 @@ describe('RainbowRouter Aggregators', function () {
       ],
     });
 
-    const { signer, rainbowRouterInstance, getEthVaultBalance } = await init();
+    const { signer, rainbowRouterInstance, getEthVaultBalance, getSignerBalance, publicClient} = await init();
     currentVaultAddress = rainbowRouterInstance.address;
 
     swapTokenToToken = async (
       source: Sources,
-      inputAsset: EthereumAddress,
-      outputAsset: EthereumAddress,
-      sellAmount: BigNumberish,
-      feePercentageBasisPoints: BigNumberish
+      inputAsset: Address,
+      outputAsset: Address,
+      sellAmount: bigint,
+      feePercentageBasisPoints: bigint
     ) => {
       const initialVaultInputTokenBalance = await getVaultBalanceForToken(
         inputAsset,
@@ -70,26 +71,22 @@ describe('RainbowRouter Aggregators', function () {
         rainbowRouterInstance.address
       );
 
-      const inputAssetContract = await ethers.getContractAt(
-        inputAsset.toLowerCase() === WETH_ADDRESS.toLowerCase()
-          ? 'IWETH'
-          : '@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol:IERC20Metadata',
-        inputAsset
+      const inputAssetContract = await hre.viem.getContractAt(
+          'IWETH',
+        inputAsset,
       );
-      const inputAssetSymbol = await inputAssetContract.symbol();
-      const inputAssetDecimals = await inputAssetContract.decimals();
+      const inputAssetSymbol = await inputAssetContract.read.symbol();
+      const inputAssetDecimals = await inputAssetContract.read.decimals();
 
-      const outputAssetContract = await ethers.getContractAt(
-        outputAsset.toLowerCase() === WETH_ADDRESS.toLowerCase()
-          ? 'IWETH'
-          : '@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol:IERC20Metadata',
+      const outputAssetContract = await hre.viem.getContractAt(
+          'IWETH',
         outputAsset
       );
 
-      const outputAssetSymbol = await outputAssetContract.symbol();
-      const outputAssetDecimals = await outputAssetContract.decimals();
+      const outputAssetSymbol = await outputAssetContract.read.symbol();
+      const outputAssetDecimals = await outputAssetContract.read.decimals();
 
-      const sellAmountWei = ethers.utils.parseEther(sellAmount.toString());
+      const sellAmountWei = parseEther(sellAmount.toString());
 
       const quote = await getQuoteFromFile(
         TESTDATA_DIR,
@@ -104,17 +101,17 @@ describe('RainbowRouter Aggregators', function () {
 
       Logger.log(
         'Input amount',
-        ethers.utils.formatUnits(sellAmountWei, inputAssetDecimals),
+        formatUnits(sellAmountWei, inputAssetDecimals),
         inputAssetSymbol
       );
       Logger.log(
         'Fee',
-        ethers.utils.formatUnits(quote.fee, inputAssetDecimals),
+        formatUnits(quote.fee, inputAssetDecimals),
         inputAssetSymbol
       );
       Logger.log(
         `User will get ~ `,
-        ethers.utils.formatUnits(quote.buyAmount, outputAssetDecimals),
+        formatUnits(quote.buyAmount, outputAssetDecimals),
         outputAssetSymbol
       );
 
@@ -122,71 +119,79 @@ describe('RainbowRouter Aggregators', function () {
         Logger.log(
           `User wrapping ${sellAmount} into WETH to have input token available...`
         );
-        const depositTx = await inputAssetContract.deposit({
+        const depositTx = await inputAssetContract.write.deposit({
           value: sellAmountWei,
         });
-        await depositTx.wait();
+        await publicClient.waitForTransactionReceipt({hash: depositTx})
       }
 
-      const initialInputAssetBalance = await inputAssetContract.balanceOf(
-        signer.address
+      const initialInputAssetBalance = await inputAssetContract.read.balanceOf(
+        [signer.account.address]
       );
-      const initialOutputAssetBalance = await outputAssetContract.balanceOf(
-        signer.address
+      const initialOutputAssetBalance = await outputAssetContract.read.balanceOf(
+        [signer.account.address]
       );
 
       Logger.log(
         `Initial user ${inputAssetSymbol} balance`,
-        ethers.utils.formatUnits(initialInputAssetBalance, inputAssetDecimals)
+        formatUnits(initialInputAssetBalance, inputAssetDecimals)
       );
       Logger.log(
         `Initial user balance ${outputAssetSymbol}: `,
-        ethers.utils.formatUnits(initialOutputAssetBalance, outputAssetDecimals)
+        formatUnits(initialOutputAssetBalance, outputAssetDecimals)
       );
 
       // Grant the contact an allowance to spend our token.
-      const approveTx = await inputAssetContract.approve(
+      const approveTx = await inputAssetContract.write.approve([
         rainbowRouterInstance.address,
         sellAmountWei
-      );
+      ]);
 
-      await approveTx.wait();
+      await publicClient.waitForTransactionReceipt({hash: approveTx})
       Logger.log(`Approved token allowance of `, sellAmountWei.toString());
 
       Logger.log(`Executing swap...`);
-      const swapTx = await rainbowRouterInstance.fillQuoteTokenToToken(
+      const swapTx = await rainbowRouterInstance.write.fillQuoteTokenToToken([
         quote.sellTokenAddress,
         quote.buyTokenAddress,
-        quote.to,
-        quote.data,
+        quote.to || "0x",
+        quote.data || "0x",
         quote.sellAmount,
         quote.fee,
+        {
+          verifyingSigner: zeroAddress,
+          nonce: 0n,
+          signature: "0x",
+          validBefore: 0,
+          validAfter: 0,
+        },
+        ],
         {
           value: quote.value,
         }
       );
 
-      const receipt = await swapTx.wait();
+      const receipt = await publicClient.waitForTransactionReceipt({hash: swapTx})
 
       showGasUsage &&
         Logger.info('      ⛽  Gas usage: ', receipt.gasUsed.toString());
 
-      const finalInputAssetBalance = await inputAssetContract.balanceOf(
-        signer.address
-      );
-      const finalOutputAssetBalance = await outputAssetContract.balanceOf(
-        signer.address
-      );
-      const inputTokenBalanceVault = await inputAssetContract.balanceOf(
-        currentVaultAddress
+      const finalInputAssetBalance = await inputAssetContract.read.balanceOf([
+        signer.account.address
+      ]);
+      const finalOutputAssetBalance = await outputAssetContract.read.balanceOf([
+        signer.account.address
+      ]);
+      const inputTokenBalanceVault = await inputAssetContract.read.balanceOf(
+        [currentVaultAddress]
       );
       Logger.log(
         `Final user balance (${outputAssetSymbol}): `,
-        ethers.utils.formatUnits(finalOutputAssetBalance, outputAssetDecimals)
+        formatUnits(finalOutputAssetBalance, outputAssetDecimals)
       );
       Logger.log(
         `Final VAULT balance (${inputAssetSymbol}): `,
-        ethers.utils.formatUnits(inputTokenBalanceVault, inputAssetDecimals)
+        formatUnits(inputTokenBalanceVault, inputAssetDecimals)
       );
 
       const finalVaultInputTokenBalance = await getVaultBalanceForToken(
@@ -198,19 +203,19 @@ describe('RainbowRouter Aggregators', function () {
         rainbowRouterInstance.address
       );
 
-      expect(finalInputAssetBalance.lt(initialInputAssetBalance)).to.be.equal(
+      expect(finalInputAssetBalance<(initialInputAssetBalance)).to.be.equal(
         true
       );
-      expect(finalOutputAssetBalance.gt(initialOutputAssetBalance)).to.be.equal(
+      expect(finalOutputAssetBalance>(initialOutputAssetBalance)).to.be.equal(
         true
       );
-      expect(inputTokenBalanceVault.gte(quote.fee)).to.be.equal(true);
+      expect(inputTokenBalanceVault >= quote.fee).to.be.equal(true);
 
       expect(
-        finalVaultInputTokenBalance.gte(initialVaultInputTokenBalance)
+        finalVaultInputTokenBalance >= initialVaultInputTokenBalance
       ).to.be.equal(true);
       expect(
-        finalVaultOutputTokenBalance.gte(initialVaultOutputTokenBalance)
+        finalVaultOutputTokenBalance >= initialVaultOutputTokenBalance
       ).to.be.equal(true);
 
       return true;
@@ -218,36 +223,34 @@ describe('RainbowRouter Aggregators', function () {
 
     swapETHtoToken = async (
       source: Sources,
-      outputAsset: EthereumAddress,
-      sellAmount: BigNumberish,
-      feePercentageBasisPoints: BigNumberish
+      outputAsset: Address,
+      sellAmount: bigint,
+      feePercentageBasisPoints: bigint
     ) => {
       const initialVaultOutputTokenBalance = await getVaultBalanceForToken(
         outputAsset,
         rainbowRouterInstance.address
       );
 
-      const tokenContract = await ethers.getContractAt(
-        outputAsset.toLowerCase() === WETH_ADDRESS.toLowerCase()
-          ? 'IWETH'
-          : '@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol:IERC20Metadata',
+      const tokenContract = await hre.viem.getContractAt(
+        'IWETH',
         outputAsset
       );
-      const initialEthBalance = await signer.getBalance();
-      const initialTokenBalance = await tokenContract.balanceOf(signer.address);
-      const tokenSymbol = await tokenContract.symbol();
-      const tokenDecimals = await tokenContract.decimals();
+      const initialEthBalance = await getSignerBalance();
+      const initialTokenBalance = await tokenContract.read.balanceOf([signer.account.address]);
+      const tokenSymbol = await tokenContract.read.symbol();
+      const tokenDecimals = await tokenContract.read.decimals();
 
       Logger.log(
         'Initial user balance (ETH)',
-        ethers.utils.formatEther(initialEthBalance)
+        formatEther(initialEthBalance)
       );
       Logger.log(
         `Initial user balance (${tokenSymbol}): `,
-        ethers.utils.formatUnits(initialTokenBalance, tokenDecimals)
+        formatUnits(initialTokenBalance, tokenDecimals)
       );
 
-      const sellAmountWei = ethers.utils.parseEther(sellAmount.toString());
+      const sellAmountWei = parseEther(sellAmount.toString());
 
       const quote = await getQuoteFromFile(
         TESTDATA_DIR,
@@ -262,18 +265,18 @@ describe('RainbowRouter Aggregators', function () {
 
       Logger.log(
         'Input amount',
-        ethers.utils.formatEther(sellAmountWei),
+        formatEther(sellAmountWei),
         'ETH'
       );
-      Logger.log('Fee', ethers.utils.formatEther(quote.fee), 'ETH');
+      Logger.log('Fee', formatEther(quote.fee), 'ETH');
       Logger.log(
         'Amount to be swapped',
-        ethers.utils.formatEther(quote.sellAmountMinusFees),
+        formatEther(quote.sellAmountMinusFees),
         'ETH'
       );
       Logger.log(
         `User will get ~ `,
-        ethers.utils.formatUnits(quote.buyAmount),
+        formatUnits(quote.buyAmount, tokenDecimals),
         tokenSymbol
       );
 
@@ -281,43 +284,51 @@ describe('RainbowRouter Aggregators', function () {
 
       Logger.log(
         `Executing swap... with `,
-        ethers.utils.formatEther(sellAmountWei)
+        formatEther(sellAmountWei)
       );
       Logger.log('calldata is: ', quote.data);
       Logger.log('target is: ', quote.to);
-      const swapTx = await rainbowRouterInstance.fillQuoteEthToToken(
+      const swapTx = await rainbowRouterInstance.write.fillQuoteEthToToken([
         quote.buyTokenAddress,
-        quote.to,
-        quote.data,
+        quote.to || "0x",
+        quote.data || "0x",
         quote.fee,
+        {
+          verifyingSigner: zeroAddress,
+          nonce: 0n,
+          validBefore: 0,
+          validAfter: 0,
+          signature: "0x",
+        },
+        ],
         {
           value: quote.value,
         }
       );
 
-      const receipt = await swapTx.wait();
+      const receipt = await publicClient.waitForTransactionReceipt({hash: swapTx})
       showGasUsage &&
         Logger.info('      ⛽  Gas usage: ', receipt.gasUsed.toString());
 
-      const tokenBalanceSigner = await tokenContract.balanceOf(signer.address);
-      const ethBalanceSigner = await signer.getBalance();
+      const tokenBalanceSigner = await tokenContract.read.balanceOf([signer.account.address]);
+      const ethBalanceSigner = await getSignerBalance();
       const ethBalanceVault = await getEthVaultBalance();
-      const ethVaultDiff = ethBalanceVault.sub(ethBalanceVaultBeforeSwap);
+      const ethVaultDiff = ethBalanceVault - ethBalanceVaultBeforeSwap;
       Logger.log(
         `Final user balance (${tokenSymbol}): `,
-        ethers.utils.formatEther(tokenBalanceSigner)
+        formatEther(tokenBalanceSigner)
       );
       Logger.log(
         'Final user balance (ETH): ',
-        ethers.utils.formatEther(ethBalanceSigner)
+        formatEther(ethBalanceSigner)
       );
       Logger.log(
         'Final vault balance (ETH): ',
-        ethers.utils.formatEther(ethBalanceVault)
+        formatEther(ethBalanceVault)
       );
       Logger.log(
         'Vault increase (ETH): ',
-        ethers.utils.formatEther(ethVaultDiff)
+        formatEther(ethVaultDiff)
       );
 
       const finalVaultOutputTokenBalance = await getVaultBalanceForToken(
@@ -325,47 +336,45 @@ describe('RainbowRouter Aggregators', function () {
         rainbowRouterInstance.address
       );
 
-      expect(tokenBalanceSigner.gt(initialTokenBalance)).to.be.equal(true);
-      expect(ethBalanceSigner.lt(initialEthBalance)).to.be.equal(true);
-      expect(ethers.utils.formatEther(ethVaultDiff)).to.be.equal(
-        ethers.utils.formatEther(quote.fee)
+      expect(tokenBalanceSigner >(initialTokenBalance)).to.be.equal(true);
+      expect(ethBalanceSigner < initialEthBalance).to.be.equal(true);
+      expect(formatEther(ethVaultDiff)).to.be.equal(
+        formatEther(quote.fee)
       );
 
-      expect(ethBalanceVault.gte(ethBalanceVaultBeforeSwap)).to.be.equal(true);
+      expect(ethBalanceVault >= ethBalanceVaultBeforeSwap).to.be.equal(true);
       expect(
-        finalVaultOutputTokenBalance.gte(initialVaultOutputTokenBalance)
+        finalVaultOutputTokenBalance >= initialVaultOutputTokenBalance
       ).to.be.equal(true);
     };
 
     swapTokenToETH = async (
       source: Sources,
-      inputAsset: EthereumAddress,
-      _: BigNumberish,
-      feePercentageBasisPoints: BigNumberish
+      inputAsset: Address,
+      _: bigint,
+      feePercentageBasisPoints: bigint
     ) => {
       const initialVaultInputTokenBalance = await getVaultBalanceForToken(
         inputAsset,
         rainbowRouterInstance.address
       );
-      const tokenContract = await ethers.getContractAt(
-        inputAsset.toLowerCase() === WETH_ADDRESS.toLowerCase()
-          ? 'IWETH'
-          : '@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol:IERC20Metadata',
-        inputAsset
+      const tokenContract = await hre.viem.getContractAt(
+        'IWETH',
+        inputAsset,
       );
-      const initialEthBalance = await signer.getBalance();
-      const initialTokenBalance = await tokenContract.balanceOf(signer.address);
-      const tokenSymbol = await tokenContract.symbol();
-      const tokenDecimals = await tokenContract.decimals();
+      const initialEthBalance = await getSignerBalance();
+      const initialTokenBalance = await tokenContract.read.balanceOf([signer.account.address]);
+      const tokenSymbol = await tokenContract.read.symbol();
+      const tokenDecimals = await tokenContract.read.decimals();
       const ethBalanceVaultBeforeSwap = await getEthVaultBalance();
 
       Logger.log(
         `Initial user balance (${tokenSymbol}): `,
-        ethers.utils.formatUnits(initialTokenBalance, tokenDecimals)
+        formatUnits(initialTokenBalance, tokenDecimals)
       );
       Logger.log(
         'Initial user balance (ETH)',
-        ethers.utils.formatEther(initialEthBalance)
+        formatEther(initialEthBalance)
       );
 
       const sellAmountWei = initialTokenBalance;
@@ -383,68 +392,77 @@ describe('RainbowRouter Aggregators', function () {
 
       Logger.log(
         'Input amount',
-        ethers.utils.formatUnits(sellAmountWei, tokenDecimals),
+        formatUnits(sellAmountWei, tokenDecimals),
         tokenSymbol
       );
-      Logger.log('Fee', ethers.utils.formatEther(quote.fee), 'ETH');
+      Logger.log('Fee', formatEther(quote.fee), 'ETH');
       Logger.log(
         'Amount to be swapped',
-        ethers.utils.formatUnits(quote.sellAmountMinusFees, tokenDecimals),
+        formatUnits(quote.sellAmountMinusFees, tokenDecimals),
         tokenSymbol
       );
       Logger.log(
         `User will get ~ `,
-        ethers.utils.formatEther(quote.buyAmount),
+        formatEther(quote.buyAmount),
         'ETH'
       );
 
       // Grant the allowance target an allowance to spend our WETH.
-      const approveTx = await tokenContract.approve(
+      const approveTx = await tokenContract.write.approve([
         rainbowRouterInstance.address,
         sellAmountWei
-      );
+      ]);
 
-      await approveTx.wait();
+      await publicClient.waitForTransactionReceipt({hash: approveTx})
 
       Logger.log(`Executing swap...`);
       Logger.log('calldata is: ', quote.data);
       Logger.log('target is: ', quote.to);
 
-      const swapTx = await rainbowRouterInstance.fillQuoteTokenToEth(
+      const swapTx = await rainbowRouterInstance.write.fillQuoteTokenToEth([
         quote.sellTokenAddress,
-        quote.to,
-        quote.data,
+        quote.to || "0x",
+        quote.data || "0x",
         quote.sellAmount,
-        quote.feePercentageBasisPoints,
+        BigInt(quote.feePercentageBasisPoints),
+        {
+          verifyingSigner: zeroAddress,
+          nonce: 0n,
+          validBefore: 0,
+          validAfter: 0,
+          signature: "0x",
+        },
+      ],
         {
           value: quote.value,
         }
       );
 
-      const receipt = await swapTx.wait();
+      const receipt = await publicClient.waitForTransactionReceipt({hash: swapTx})
+
       showGasUsage &&
         Logger.info('      ⛽  Gas usage: ', receipt.gasUsed.toString());
 
-      const tokenBalanceSigner = await tokenContract.balanceOf(signer.address);
-      const ethBalanceSigner = await signer.getBalance();
+      const tokenBalanceSigner = await tokenContract.read.balanceOf([signer.account.address]);
+      const ethBalanceSigner = await getSignerBalance();
       const ethBalanceVault = await getEthVaultBalance();
-      const ethVaultDiff = ethBalanceVault.sub(ethBalanceVaultBeforeSwap);
+      const ethVaultDiff = ethBalanceVault - ethBalanceVaultBeforeSwap;
 
       Logger.log(
         `Final user balance (${tokenSymbol}): `,
-        ethers.utils.formatUnits(tokenBalanceSigner, tokenDecimals)
+        formatUnits(tokenBalanceSigner, tokenDecimals)
       );
       Logger.log(
         'Final user balance (ETH): ',
-        ethers.utils.formatEther(ethBalanceSigner)
+        formatEther(ethBalanceSigner)
       );
       Logger.log(
         'Final VAULT balance (ETH): ',
-        ethers.utils.formatEther(ethBalanceVault)
+        formatEther(ethBalanceVault)
       );
       Logger.log(
         'Vault increase (ETH): ',
-        ethers.utils.formatEther(ethVaultDiff)
+        formatEther(ethVaultDiff)
       );
 
       const finalVaultInputTokenBalance = await getVaultBalanceForToken(
@@ -453,13 +471,13 @@ describe('RainbowRouter Aggregators', function () {
       );
 
       expect(tokenBalanceSigner).to.be.equal('0');
-      expect(ethBalanceSigner.gt(initialEthBalance)).to.be.equal(true);
-      if (feePercentageBasisPoints > 0) {
-        expect(ethVaultDiff.gt(ethers.BigNumber.from('0'))).to.be.equal(true);
+      expect(ethBalanceSigner < (initialEthBalance)).to.be.equal(true);
+      if (feePercentageBasisPoints > 0n) {
+        expect(ethVaultDiff > 0n).to.be.equal(true);
       }
-      expect(ethBalanceVault.gte(ethBalanceVaultBeforeSwap)).to.be.equal(true);
+      expect(ethBalanceVault>=(ethBalanceVaultBeforeSwap)).to.be.equal(true);
       expect(
-        finalVaultInputTokenBalance.gte(initialVaultInputTokenBalance)
+        finalVaultInputTokenBalance>=(initialVaultInputTokenBalance)
       ).to.be.equal(true);
     };
   });

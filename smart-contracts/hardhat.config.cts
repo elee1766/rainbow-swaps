@@ -1,30 +1,23 @@
-import { task } from 'hardhat/config';
-import '@nomiclabs/hardhat-waffle';
-import 'hardhat-gas-reporter';
-import 'hardhat-tracer';
-import '@nomiclabs/hardhat-etherscan';
-
+import { HardhatUserConfig, task } from 'hardhat/config';
+import "@nomicfoundation/hardhat-toolbox-viem";
 import { config as dotEnvConfig } from "dotenv";
 dotEnvConfig();
 
 // This is a sample Hardhat task. To learn how to create your own go to
 // https://hardhat.org/guides/create-task.html
 task('accounts', 'Prints the list of accounts', async (taskArgs, hre) => {
-  const accounts = await hre.ethers.getSigners();
+  const accounts = await hre.viem.getWalletClients();
 
   for (const account of accounts) {
     // eslint-disable-next-line no-console
-    console.log(account.address);
+    console.log(await account.getAddresses());
   }
 });
 
 // You need to export an object to set up your config
 // Go to https://hardhat.org/config/ to learn more
 
-/**
- * @type import('hardhat/config').HardhatUserConfig
- */
-export default {
+const config: HardhatUserConfig = {
   defaultNetwork: 'hardhat',
   etherscan: {
     apiKey: process.env.ETHERSCAN_API_KEY,
@@ -38,7 +31,7 @@ export default {
       chainId: 1,
       forking: {
         blockNumber: 15214922,
-        url: process.env.MAINNET_RPC_ENDPOINT,
+        url: process.env.MAINNET_RPC_ENDPOINT|| "",
       },
     },
     mainnet: {
@@ -53,6 +46,8 @@ export default {
         runs: 1000,
       },
     },
-    version: '0.8.11',
+    version: '0.8.27',
   },
 };
+
+export default  config

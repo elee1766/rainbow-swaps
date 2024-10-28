@@ -1,11 +1,11 @@
 /* eslint-disable import/no-extraneous-dependencies */
 import { promises as fs } from 'fs';
-import { BigNumber, BigNumberish } from '@ethersproject/bignumber';
-import { Contract } from '@ethersproject/contracts';
 import { signTypedData_v4, TypedDataUtils } from 'eth-sig-util';
 import { addHexPrefix, toBuffer } from 'ethereumjs-util';
-import { ethers } from 'hardhat';
-import { DomainParam, EthereumAddress, MessageParam, Quote } from '../types';
+import { DomainParam, MessageParam, Quote } from '../types';
+import { Address, Hex, parseSignature, toHex, zeroAddress } from 'viem';
+
+import hre from 'hardhat';
 
 const debug = false;
 const showGasUsage = false;
@@ -27,7 +27,6 @@ const OPIUM_ADDRESS = '0x888888888889c00c67689029d7856aac1065ec11';
 const MIST_ADDRESS = '0x88acdd2a6425c3faae4bc9650fd7e27e0bebb7ab';
 const TRIBE_ADDRESS = '0xc7283b66eb1eb5fb86327f08e1b5816b0720212b';
 const FEI_ADDRESS = '0x956f47f50a910163d8bf957cf5846d573e7f87ca';
-const MAX_INT = BigNumber.from('2').pow('256').sub('1').toString();
 
 const Logger = {
   info(...args: any[]) {
@@ -41,37 +40,41 @@ const Logger = {
 };
 
 const getVaultBalanceForToken = async (
-  tokenAddress: string,
-  vaultAddress: string
+  tokenAddress: Hex,
+  vaultAddress: Hex,
 ) => {
-  const tokenContract = await ethers.getContractAt('IERC20', tokenAddress);
-  return tokenContract.balanceOf(vaultAddress);
+  const tokenContract = await hre.viem.getContractAt('IERC20', tokenAddress);
+  return tokenContract.read.balanceOf([vaultAddress]);
 };
 
 const init = async () => {
-  const wethContract = await ethers.getContractAt('IWETH', WETH_ADDRESS);
-  const daiContract = await ethers.getContractAt('IDAI', DAI_ADDRESS);
+  const wethContract = await hre.viem.getContractAt('IWETH', WETH_ADDRESS);
+  const daiContract = await hre.viem.getContractAt('IDAI', DAI_ADDRESS);
 
-  const signer = (await ethers.getSigners())[0];
-  Logger.log('User address', await signer.address);
+  const signer = (await hre.viem.getWalletClients())[0]
+  Logger.log('User address', signer.account.address);
 
-  const RainbowRouter = await ethers.getContractFactory('RainbowRouter');
-  const rainbowRouterInstance = await RainbowRouter.deploy();
-  await rainbowRouterInstance.deployed();
+  const rainbowRouterInstance = await hre.viem.deployContract("RainbowRouter");
   Logger.log('Contract address', rainbowRouterInstance.address);
 
-  await rainbowRouterInstance.updateSwapTargets(MAINNET_ADDRESS_1INCH, true);
-  await rainbowRouterInstance.updateSwapTargets(MAINNET_ADDRESS_0X, true);
+  await rainbowRouterInstance.write.updateSwapTargets([MAINNET_ADDRESS_1INCH, true]);
+  await rainbowRouterInstance.write.updateSwapTargets([MAINNET_ADDRESS_0X, true]);
 
-  const getEthVaultBalance = () =>
-    ethers.provider.getBalance(rainbowRouterInstance.address);
+  await rainbowRouterInstance.write.updateValidSigner([zeroAddress, true]);
+
+  const publicClient = await hre.viem.getPublicClient();
+
+  const getEthVaultBalance = async () => publicClient.getBalance({address: rainbowRouterInstance.address});
+  const getSignerBalance = async () => publicClient.getBalance({address: signer.account.address});
 
   return {
+    getSignerBalance,
     daiContract,
     getEthVaultBalance,
     rainbowRouterInstance,
     signer,
     wethContract,
+    publicClient
   };
 };
 
@@ -135,17 +138,19 @@ const getPermitVersion = async (
   }
 };
 
-const getNonces = async (token: Contract, owner: any) => {
-  try {
-    const nonce = await token.nonces(owner);
+const getNonces = async (token: Address, owner: any) => {
+  const isDaiStylePermit =
+    token.toLowerCase() === DAI_ADDRESS.toLowerCase();
+  if(isDaiStylePermit) {
+  const tokenContract = await hre.viem.getContractAt(
+    'IDAI', token)
+    const nonce = await tokenContract.read.nonces(owner);
     return nonce;
-  } catch (e) {
-    try {
-      const nonce = await token._nonces(owner);
-      return nonce;
-    } catch (e) {
-      return 0;
-    }
+  } else {
+    const tokenContract = await hre.viem.getContractAt(
+      'IERC2612Extension', token)
+    const nonce = await tokenContract.read._nonces(owner);
+    return nonce;
   }
 };
 
@@ -172,20 +177,22 @@ const PERMIT_ALLOWED_TYPE = [
 ];
 
 async function signPermit(
-  token: Contract,
-  owner: EthereumAddress,
-  spender: EthereumAddress,
-  value: BigNumberish,
-  deadline: BigNumberish,
+  token: Address,
+  owner: Address,
+  spender: Address,
+  value: bigint,
+  deadline: bigint,
   chainId: number
 ) {
-  const isDaiStylePermit =
-    token.address.toLowerCase() === DAI_ADDRESS.toLowerCase();
+  const tokenContract = await hre.viem.getContractAt('IERC20Metadata', token)
 
-  const name = await token.name();
+  const isDaiStylePermit =
+    token.toLowerCase() === DAI_ADDRESS.toLowerCase();
+
+  const name = await tokenContract.read.name();
   const [nonce, version] = await Promise.all([
     getNonces(token, owner),
-    getPermitVersion(token as any, name, chainId, token.address),
+    getPermitVersion(token as any, name, chainId, token),
   ]);
 
   const message: MessageParam = {
@@ -198,7 +205,7 @@ async function signPermit(
     message.allowed = true;
     message.expiry = Number(deadline.toString());
   } else {
-    message.value = ethers.BigNumber.from(value).toHexString();
+    message.value = toHex(value)
     message.deadline = Number(deadline.toString());
     message.owner = owner;
   }
@@ -206,7 +213,7 @@ async function signPermit(
   const domain: DomainParam = {
     chainId,
     name,
-    verifyingContract: token.address,
+    verifyingContract: token,
   };
   if (version !== null) {
     domain.version = version;
@@ -233,9 +240,9 @@ async function signPermit(
 
   const signature = signTypedData_v4(privateKeyBuffer, {
     data: data as any,
-  });
+  }) as Hex;
 
-  const { v, r, s } = ethers.utils.splitSignature(signature);
+  const { v, r, s } = parseSignature(signature);
   return {
     deadline,
     isDaiStylePermit,
@@ -243,7 +250,7 @@ async function signPermit(
     r,
     s,
     v,
-    value: message.value || ethers.BigNumber.from('0').toHexString(),
+    value: message.value || toHex(0n),
   };
 }
 
@@ -276,7 +283,6 @@ export {
   init,
   Logger,
   LQTY_ADDRESS,
-  MAX_INT,
   MIST_ADDRESS,
   OPIUM_ADDRESS,
   RAD_ADDRESS,

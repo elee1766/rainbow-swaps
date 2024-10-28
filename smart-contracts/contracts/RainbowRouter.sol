@@ -52,10 +52,11 @@
  */
 
 //SPDX-License-Identifier: GPL-3.0
-pragma solidity =0.8.11;
-import "solmate/src/utils/SafeTransferLib.sol";
-import "solmate/src/tokens/ERC20.sol";
+pragma solidity =0.8.27;
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./routers/BaseAggregator.sol";
+import "./libraries/SafeTransferLib.sol";
 
 /// @title Rainbow swap aggregator contract
 contract RainbowRouter is BaseAggregator {
@@ -144,7 +145,7 @@ contract RainbowRouter is BaseAggregator {
         uint256 amount
     ) external onlyOwner {
         require(to != address(0), "ZERO_ADDRESS");
-        SafeTransferLib.safeTransfer(ERC20(token), to, amount);
+        SafeERC20.safeTransfer(IERC20(token), to, amount);
         emit TokenWithdrawn(token, to, amount);
     }
 

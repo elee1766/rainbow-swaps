@@ -15,11 +15,10 @@
  */
 
 import path from 'path';
-import { BigNumberish } from '@ethersproject/bignumber';
 import { expect } from 'chai';
-import { ethers, network } from 'hardhat';
+import { network } from 'hardhat';
 
-import { EthereumAddress, Sources } from '../types';
+import { Sources } from '../types';
 import {
   BAL_ADDRESS,
   DAI_ADDRESS,
@@ -31,7 +30,6 @@ import {
   init,
   Logger,
   LQTY_ADDRESS,
-  MAX_INT,
   MIST_ADDRESS,
   OPIUM_ADDRESS,
   RAD_ADDRESS,
@@ -44,6 +42,8 @@ import {
   WNXM_ADDRESS,
 } from '../utils';
 
+import hre from 'hardhat';
+import { Address, formatEther, formatUnits, maxUint256, parseEther } from 'viem';
 const SELL_AMOUNT = '0.1';
 const TESTDATA_DIR = path.resolve(__dirname, 'testdata/inputpermit');
 
@@ -63,34 +63,33 @@ describe('RainbowRouter Aggregators', function () {
       ],
     });
 
-    const { signer, rainbowRouterInstance } = await init();
+    const { signer, rainbowRouterInstance, publicClient } = await init();
 
     swapETHtoToken = async (
       source: Sources,
-      tokenAddress: EthereumAddress,
-      sellAmount: BigNumberish,
-      feePercentageBasisPoints: BigNumberish
+      tokenAddress: Address,
+      sellAmount: bigint,
+      feePercentageBasisPoints: bigint
     ) => {
-      const tokenContract = await ethers.getContractAt(
-        tokenAddress.toLowerCase() === DAI_ADDRESS.toLowerCase()
-          ? 'IDAI'
-          : 'IERC2612Extension',
+      const tokenContract = await hre.viem.getContractAt(
+        'IERC20',
         tokenAddress
       );
-      const initialEthBalance = await signer.getBalance();
-      const initialTokenBalance = await tokenContract.balanceOf(signer.address);
-      const tokenSymbol = await tokenContract.symbol();
-      const tokenDecimals = await tokenContract.decimals();
+
+      const initialEthBalance = await publicClient.getBalance({address: signer.account.address});
+      const initialTokenBalance = await tokenContract.read.balanceOf([signer.account.address]);
+      const tokenSymbol = await tokenContract.read.symbol();
+      const tokenDecimals = await tokenContract.read.decimals();
       Logger.log(
         'Initial user balance (ETH)',
-        ethers.utils.formatEther(initialEthBalance)
+        formatEther(initialEthBalance)
       );
       Logger.log(
         `Initial user balance (${tokenSymbol}): `,
-        ethers.utils.formatUnits(initialTokenBalance, tokenDecimals)
+        formatUnits(initialTokenBalance, tokenDecimals)
       );
 
-      const sellAmountWei = ethers.utils.parseEther(sellAmount.toString());
+      const sellAmountWei = parseEther(sellAmount.toString());
 
       const quote = await getQuoteFromFile(
         TESTDATA_DIR,
@@ -105,31 +104,32 @@ describe('RainbowRouter Aggregators', function () {
 
       Logger.log(
         'Input amount',
-        ethers.utils.formatEther(sellAmountWei),
+        formatEther(sellAmountWei),
         'ETH'
       );
-      Logger.log('Fee', ethers.utils.formatEther(quote.fee), 'ETH');
+      Logger.log('Fee', formatEther(quote.fee), 'ETH');
       Logger.log(
         'Amount to be swapped',
-        ethers.utils.formatEther(quote.sellAmountMinusFees),
+        formatEther(quote.sellAmountMinusFees),
         'ETH'
       );
       Logger.log(
         `User will get ~ `,
-        ethers.utils.formatUnits(quote.buyAmount, tokenDecimals),
+        formatUnits(quote.buyAmount, tokenDecimals),
         tokenSymbol
       );
 
       Logger.log(
         `Executing swap... with `,
-        ethers.utils.formatEther(sellAmountWei)
+        formatEther(sellAmountWei)
       );
 
-      const swapTx = await rainbowRouterInstance.fillQuoteEthToToken(
+      const swapTx = await rainbowRouterInstance.write.fillQuoteEthToToken([
         quote.buyTokenAddress,
         quote.to,
         quote.data,
         quote.fee,
+        ],
         {
           value: quote.value,
         }
@@ -139,15 +139,15 @@ describe('RainbowRouter Aggregators', function () {
       showGasUsage &&
         Logger.info('      ⛽  Gas usage: ', receipt.gasUsed.toString());
 
-      const tokenBalanceSigner = await tokenContract.balanceOf(signer.address);
-      const ethBalanceSigner = await signer.getBalance();
+      const tokenBalanceSigner = await tokenContract.read.balanceOf([signer.account.address]);
+      const ethBalanceSigner = await publicClient.getBalance({address: signer.account.address});
       Logger.log(
         `Final user balance (${tokenSymbol}): `,
-        ethers.utils.formatUnits(tokenBalanceSigner, tokenDecimals)
+        formatUnits(tokenBalanceSigner, tokenDecimals)
       );
       Logger.log(
         'Final user balance (ETH): ',
-        ethers.utils.formatEther(ethBalanceSigner)
+        formatEther(ethBalanceSigner)
       );
 
       expect(tokenBalanceSigner.gt(initialTokenBalance)).to.be.equal(true);
@@ -156,28 +156,28 @@ describe('RainbowRouter Aggregators', function () {
 
     swapTokentoETH = async (
       source: Sources,
-      tokenAddress: EthereumAddress,
-      feePercentageBasisPoints: BigNumberish,
+      tokenAddress: Address,
+      feePercentageBasisPoints: bigint,
       usePermit = true
     ) => {
-      const tokenContract = await ethers.getContractAt(
+      const tokenContract = await hre.viem.getContractAt(
         tokenAddress.toLowerCase() === DAI_ADDRESS.toLowerCase()
           ? 'IDAI'
           : 'IERC2612Extension',
         tokenAddress
       );
-      const initialEthBalance = await signer.getBalance();
-      const initialTokenBalance = await tokenContract.balanceOf(signer.address);
-      const tokenSymbol = await tokenContract.symbol();
-      const tokenDecimals = await tokenContract.decimals();
+      const initialEthBalance = await publicClient.getBalance({address: signer.account.address});
+      const initialTokenBalance = await tokenContract.read.balanceOf([signer.account.address]);
+      const tokenSymbol = await tokenContract.read.symbol();
+      const tokenDecimals = await tokenContract.read.decimals();
 
       Logger.log(
         `Initial user balance (${tokenSymbol}): `,
-        ethers.utils.formatUnits(initialTokenBalance, tokenDecimals)
+        formatUnits(initialTokenBalance, tokenDecimals)
       );
       Logger.log(
         'Initial user balance (ETH)',
-        ethers.utils.formatEther(initialEthBalance)
+        formatEther(initialEthBalance)
       );
 
       const sellAmountWei = initialTokenBalance;
@@ -195,33 +195,33 @@ describe('RainbowRouter Aggregators', function () {
 
       Logger.log(
         'Input amount',
-        ethers.utils.formatUnits(sellAmountWei, tokenDecimals),
+        formatUnits(sellAmountWei, tokenDecimals),
         tokenSymbol
       );
-      Logger.log('Fee', ethers.utils.formatEther(quote.fee), 'ETH');
+      Logger.log('Fee', formatEther(quote.fee), 'ETH');
 
       Logger.log(
         'Amount to be swapped',
-        ethers.utils.formatUnits(quote.sellAmountMinusFees),
+        formatUnits(quote.sellAmountMinusFees),
         tokenSymbol
       );
 
       Logger.log(
         `User will get ~ `,
-        ethers.utils.formatEther(quote.buyAmount),
+        formatEther(quote.buyAmount),
         'ETH'
       );
 
       let swapTx;
       if (usePermit) {
-        let { timestamp } = await ethers.provider.getBlock('latest');
-        await ethers.provider.send('evm_setNextBlockTimestamp', [++timestamp]);
-        const deadline = timestamp + 3600;
+        let {timestamp} = await publicClient.getBlock()
+        await hre.network.provider.send('evm_setNextBlockTimestamp', [++timestamp]);
+        const deadline = timestamp + 3600n;
         const permitSignature = await signPermit(
           tokenContract,
-          signer.address,
+          signer.account.address,
           rainbowRouterInstance.address,
-          MAX_INT,
+          maxUint256,
           deadline,
           1
         );
@@ -232,24 +232,26 @@ describe('RainbowRouter Aggregators', function () {
         );
 
         Logger.log(`Executing swap...`);
-        swapTx = await rainbowRouterInstance.fillQuoteTokenToEthWithPermit(
+        swapTx = await rainbowRouterInstance.write.fillQuoteTokenToEthWithPermit([
           quote.sellTokenAddress,
           quote.to,
           quote.data,
           quote.sellAmount,
           quote.feePercentageBasisPoints,
           permitSignature,
+          ],
           {
             value: quote.value,
           }
         );
       } else {
-        swapTx = await rainbowRouterInstance.fillQuoteTokenToEth(
+        swapTx = await rainbowRouterInstance.write.fillQuoteTokenToEth([
           quote.sellTokenAddress,
           quote.to,
           quote.data,
           quote.sellAmount,
           quote.feePercentageBasisPoints,
+          ],
           {
             value: quote.value,
           }
@@ -260,16 +262,16 @@ describe('RainbowRouter Aggregators', function () {
       showGasUsage &&
         Logger.info('      ⛽  Gas usage: ', receipt.gasUsed.toString());
 
-      const tokenBalanceSigner = await tokenContract.balanceOf(signer.address);
+      const tokenBalanceSigner = await tokenContract.balanceOf(signer.account.address);
       const ethBalanceSigner = await signer.getBalance();
 
       Logger.log(
         `Final user balance (${tokenSymbol}): `,
-        ethers.utils.formatEther(tokenBalanceSigner)
+        formatEther(tokenBalanceSigner)
       );
       Logger.log(
         'Final user balance (ETH): ',
-        ethers.utils.formatEther(ethBalanceSigner)
+        formatEther(ethBalanceSigner)
       );
       expect(tokenBalanceSigner).to.be.equal('0');
       expect(ethBalanceSigner.gt(initialEthBalance)).to.be.equal(true);
@@ -279,7 +281,7 @@ describe('RainbowRouter Aggregators', function () {
       source: Sources,
       tokenAddress: EthereumAddress,
       buyTokenAddress: EthereumAddress,
-      feePercentageBasisPoints: BigNumberish
+      feePercentageBasisPoints: bigint
     ) => {
       const tokenContract = await ethers.getContractAt(
         tokenAddress.toLowerCase() === DAI_ADDRESS.toLowerCase()
@@ -295,9 +297,9 @@ describe('RainbowRouter Aggregators', function () {
         buyTokenAddress
       );
       const initialBuyTokenBalance = await buyTokenContract.balanceOf(
-        signer.address
+        signer.account.address
       );
-      const initialTokenBalance = await tokenContract.balanceOf(signer.address);
+      const initialTokenBalance = await tokenContract.balanceOf(signer.account.address);
       const tokenSymbol = await tokenContract.symbol();
       const tokenDecimals = await tokenContract.decimals();
 
@@ -306,11 +308,11 @@ describe('RainbowRouter Aggregators', function () {
 
       Logger.log(
         `Initial user balance (${tokenSymbol}): `,
-        ethers.utils.formatUnits(initialTokenBalance, tokenDecimals)
+        formatUnits(initialTokenBalance, tokenDecimals)
       );
       Logger.log(
         `Initial user balance (${buyTokenSymbol}): `,
-        ethers.utils.formatUnits(initialBuyTokenBalance, buyTokenDecimals)
+        formatUnits(initialBuyTokenBalance, buyTokenDecimals)
       );
 
       const sellAmountWei = initialTokenBalance;
@@ -328,24 +330,24 @@ describe('RainbowRouter Aggregators', function () {
 
       Logger.log(
         'Input amount',
-        ethers.utils.formatUnits(sellAmountWei, tokenDecimals),
+        formatUnits(sellAmountWei, tokenDecimals),
         tokenSymbol
       );
       Logger.log(
         'Fee',
-        ethers.utils.formatUnits(quote.fee, tokenDecimals),
+        formatUnits(quote.fee, tokenDecimals),
         tokenSymbol
       );
 
       Logger.log(
         'Amount to be swapped',
-        ethers.utils.formatUnits(quote.sellAmountMinusFees),
+        formatUnits(quote.sellAmountMinusFees),
         tokenSymbol
       );
 
       Logger.log(
         `User will get ~ `,
-        ethers.utils.formatUnits(quote.buyAmount, buyTokenDecimals),
+        formatUnits(quote.buyAmount, buyTokenDecimals),
         buyTokenSymbol
       );
 
@@ -354,7 +356,7 @@ describe('RainbowRouter Aggregators', function () {
       const deadline = timestamp + 3600;
       const permitSignature = await signPermit(
         tokenContract,
-        signer.address,
+        signer.account.address,
         rainbowRouterInstance.address,
         MAX_INT,
         deadline,
@@ -383,18 +385,18 @@ describe('RainbowRouter Aggregators', function () {
       showGasUsage &&
         Logger.info('      ⛽  Gas usage: ', receipt.gasUsed.toString());
 
-      const tokenBalanceSigner = await tokenContract.balanceOf(signer.address);
+      const tokenBalanceSigner = await tokenContract.balanceOf(signer.account.address);
       const buyTokenBalanceSigner = await buyTokenContract.balanceOf(
-        signer.address
+        signer.account.address
       );
 
       Logger.log(
         `Final user balance (${tokenSymbol}): `,
-        ethers.utils.formatEther(tokenBalanceSigner)
+        formatEther(tokenBalanceSigner)
       );
       Logger.log(
         `Final user balance (${buyTokenSymbol}): `,
-        ethers.utils.formatEther(buyTokenBalanceSigner)
+        formatEther(buyTokenBalanceSigner)
       );
       expect(tokenBalanceSigner).to.be.equal('0');
       expect(buyTokenBalanceSigner.gt(initialBuyTokenBalance)).to.be.equal(
